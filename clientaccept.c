@@ -6,70 +6,71 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <string.h>
+#include <netdb.h>
 
-int MakeSocket(char* host, int port){
- 
-    printf("[ OK ]\tStart opening connection\n");
-    int cfd;
-    if ((cfd = socket(AF_INET, SOCK_STREAM, 0)) == -1){
-        perror("Error open socket\n");
+int MakeSocket(char *host, char *port){
+
+    int sock, retVal;
+    struct addrinfo hints = {
+	.ai_family = AF_INET,
+	.ai_socktype = SOCK_STREAM,
+        .ai_protocol = 0
+    }, *servInfo, *p;
+
+    if (0 != (retVal = getaddrinfo(host, port, &hints, &servInfo))){
+        fprintf(stderr, "getaddrinfo %s\n", gai_strerror(retVal));
         exit(EXIT_FAILURE);
     }
-    struct sockaddr_in adr;
-    memset(&adr, 0, sizeof(adr));
-    adr.sin_family = AF_INET;
-    adr.sin_port = htons(port);
-    int retval;
-    if ((retval = inet_pton(AF_INET, host, &adr.sin_addr)) == -1){
-        perror("Error inet pton\n");
-        exit(EXIT_FAILURE);
+
+    for(p = servInfo; p != NULL; p->ai_next){
+        if(-1 == (sock = socket(p->ai_family, p->ai_socktype, p->ai_protocol))){
+            close(sock);
+            continue;
+        }
+
+        if(-1 == connect(sock, p->ai_addr, p->ai_addrlen)){
+            close(sock);
+            continue;
+        }
+        break;
     }
-    if ((retval = connect(cfd, (struct sockaddr*) &adr, sizeof(adr))) == -1){
-        perror("Error connect\n");
-        exit(EXIT_FAILURE);
-    }
-    printf("[ OK ]\tFinish opening connection\n");
-    return cfd;
+    return sock;
 }
 
-void WriteDataToFile(char* path_name, char* data, int file_size){
- 
-    printf("[ OK ]\tStart writing data to file\n");
-    FILE* fout; 
-    if ((fout = fopen(path_name, "w")) == NULL){
-        perror("Error file opening to write\n");
+void WriteDataToFile(char *path_name, char *data, int file_size){
+
+    FILE *fout;
+    if (NULL == (fout = fopen(path_name, "w"))){
+        fprintf(stderr, "fopen() failed\n");
         exit(EXIT_FAILURE);
     }
-    size_t retval;
-    if ((retval = fwrite(data, sizeof(char), file_size, fout)) != strlen(data)){
-        fprintf(stderr, "fwrite() failed: %zu\n", retval);
+
+    if (strlen(data) != fwrite(data, sizeof(char), file_size, fout)){
+        fprintf(stderr, "fwrite() failed\n");
         exit(EXIT_FAILURE);
     }
-    printf("[ OK ]\tFinish writing to file\n");
 }
 
-void AcceptFile(int cfd){
- 
-    printf("[ OK ]\tStart accept file\n");
+void AcceptFile(int sock){
+
     int retval;
-    char* file_name = (char*)malloc(32);
-    int* file_size  = (int*)malloc(32);
-    if ((retval = recv(cfd, file_name, 32, 0)) == -1){
+    char *file_name = (char*)malloc(32);
+    int *file_size  = (int*)malloc(32);
+    if ((retval = recv(sock, file_name, 32, 0)) == -1){
         perror("Error recv filename\n");
         exit(EXIT_FAILURE);
     }
-    printf("[ OK ]\tFinish accept file name: %s\n", file_name);
-    if ((retval = recv(cfd, file_size, 32, 0)) == -1){
+
+    if ((retval = recv(sock, file_size, 32, 0)) == -1){
         perror("Error recv file size\n");
         exit(EXIT_FAILURE);
     }
-    printf("[ OK ]\tFinish accept file size: %d\n", *file_size);
-    char* file_data = (char*)malloc(*file_size);
-    if ((retval = recv(cfd, file_data, *file_size, 0)) == -1){
+
+    char *file_data = (char*)malloc(*file_size);
+    if ((retval = recv(sock, file_data, *file_size, 0)) == -1){
         perror("Error recv file size\n");
         exit(EXIT_FAILURE);
     }
-    printf("[ OK ]\tFinish accept file data\n");
-    printf("[ OK ]\tFinish file accept\n");
     WriteDataToFile(file_name, file_data, *file_size);
-} 
+}
+
